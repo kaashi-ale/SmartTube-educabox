@@ -1,0 +1,38 @@
+#!/bin/bash
+set -eu
+umask 077
+tmp=$(mktemp -d)
+producer=
+cleanup() {
+  if [[ -n $producer ]]; then kill "$producer" 2>/dev/null || true; wait "$producer" 2>/dev/null || true; fi
+  rm -rf -- "$tmp"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
+source_media=${1:-}
+if [[ -z $source_media ]]; then
+  mode=$(zenity --list --title="Reprodutor da TV Box" --column="O que deseja abrir?" "Vídeo do YouTube" "Arquivo de vídeo") || exit 0
+  case "$mode" in
+    "Vídeo do YouTube") source_media=$(zenity --entry --title="YouTube" --text="Cole o link do vídeo") || exit 0 ;;
+    *) source_media=$(zenity --file-selection --title="Abrir vídeo") || exit 0 ;;
+  esac
+fi
+case "$source_media" in
+  https://*)
+    echo "Buscando vídeo e áudio. Aguarde..."
+    if ! "$HOME/.local/bin/educabox-yt-formatos" "$source_media" > "$tmp/urls" || [[ ! -s $tmp/urls ]]; then
+      zenity --error --text="Não foi possível obter o vídeo. Confira o link e a conexão."
+      exit 1
+    fi
+    mapfile -t streams < "$tmp/urls"
+    source_media=${streams[0]}
+    if (( ${#streams[@]} == 2 )); then
+      exec 3< <(ffmpeg -nostdin -loglevel error -re -i "${streams[0]}" -i "${streams[1]}" -map 0:v:0 -map 1:a:0 -c copy -f matroska -live 1 pipe:1 2>"$tmp/remux.log")
+      producer=$!
+      source_media=fd://3
+    fi ;;
+esac
+lib="$HOME/.local/opt/rk-media/usr/lib/arm-linux-gnueabihf"
+export GST_PLUGIN_PATH="$lib/gstreamer-1.0"
+export LD_LIBRARY_PATH="$lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+gst-play-1.0 --videosink=rkximagesink -- "$source_media"
