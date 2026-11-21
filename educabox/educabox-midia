@@ -20,8 +20,15 @@ fi
 case "$source_media" in
   https://*)
     echo "Buscando vídeo e áudio. Aguarde..."
-    if ! "$HOME/.local/bin/educabox-yt-formatos" "$source_media" > "$tmp/urls" || [[ ! -s $tmp/urls ]]; then
-      zenity --error --text="Não foi possível obter o vídeo. Confira o link e a conexão."
+    if ! "$HOME/.local/bin/educabox-yt-formatos" "$source_media" > "$tmp/urls" 2>"$tmp/extractor.log" || [[ ! -s $tmp/urls ]]; then
+      if grep -Eqi 'sign in|login required|not a bot' "$tmp/extractor.log"; then
+        message="O YouTube exigiu login para este vídeo. Volte à busca e tente outro resultado."
+      elif grep -qi 'requested format is not available' "$tmp/extractor.log"; then
+        message="A qualidade escolhida não está disponível. Tente o outro modo de qualidade."
+      else
+        message="Não foi possível abrir o vídeo. Confira a conexão ou tente outro resultado."
+      fi
+      zenity --error --title="SmartTube Educabox" --text="$message"
       exit 1
     fi
     mapfile -t streams < "$tmp/urls"
