@@ -24,6 +24,8 @@ class Player:
     def __init__(self, source):
         self.source = source
         self.closed = False
+        self.failed = False
+        self.paused = False
         self.segments = []
         self.last_skip = None
         self.pipeline = None
@@ -46,6 +48,7 @@ class Player:
         self.browser = Gtk.Button(label='Abrir no YouTube')
         self.browser.connect('clicked', lambda _: Gtk.show_uri_on_window(self.window, source, Gdk.CURRENT_TIME))
         controls.pack_end(self.browser, False, False, 0)
+        self.window.connect('delete-event', self.stop_before_destroy)
         self.window.connect('destroy', self.close)
         self.window.connect('key-press-event', self.key)
         self.window.fullscreen()
@@ -55,9 +58,13 @@ class Player:
         threading.Thread(target=self.resolve, daemon=True).start()
 
     def resolve(self):
+        if self.closed:
+            return
         if self.source.startswith('https://'):
             self.extractor = subprocess.Popen([str(Path.home()/'.local/bin/educabox-yt-formatos'), self.source],
                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            if self.closed:
+                self.extractor.terminate()
             try:
                 output, error = self.extractor.communicate(timeout=100)
             except subprocess.TimeoutExpired:
@@ -89,41 +96,35 @@ class Player:
                 self.pipeline.set_property('uri', urls[0])
                 self.pipeline.set_property('video-sink', self.sink)
             else:
-                self.pipeline = Gst.Pipeline.new('smarttube')
-                for index, uri in enumerate(urls):
-                    sink = self.sink if index == 0 else Gst.ElementFactory.make('autoaudiosink')
-                    source = Gst.ElementFactory.make('uridecodebin')
-                    queue = Gst.ElementFactory.make('queue')
-                    self.pipeline.add(source)
-                    self.pipeline.add(queue)
-                    self.pipeline.add(sink)
-                    queue.link(sink)
-                    source.set_property('uri', uri)
-                    source.connect('pad-added', self.link_stream, queue, ('video/', 'audio/')[index])
+                self.pipeline = Gst.parse_launch(
+                    'uridecodebin name=video video. ! video/x-raw ! queue ! rkximagesink name=screen '
+                    'uridecodebin name=audio audio. ! audio/x-raw ! queue ! audioconvert ! audioresample ! autoaudiosink')
+                self.pipeline.get_by_name('video').set_property('uri', urls[0])
+                self.pipeline.get_by_name('audio').set_property('uri', urls[1])
+                self.sink = self.pipeline.get_by_name('screen')
+                GstVideo.VideoOverlay.set_window_handle(self.sink, self.xid)
             bus = self.pipeline.get_bus()
             bus.add_signal_watch()
             bus.connect('message', self.message)
             self.pipeline.set_state(Gst.State.PLAYING)
             GLib.timeout_add(500, self.tick)
-        except (ValueError, RuntimeError, TypeError) as error:
+        except (ValueError, RuntimeError, TypeError, GLib.Error) as error:
             self.fail(str(error))
         return False
-
-    @staticmethod
-    def link_stream(source, pad, queue, prefix):
-        caps = pad.get_current_caps() or pad.query_caps(None)
-        target = queue.get_static_pad('sink')
-        if caps.get_structure(0).get_name().startswith(prefix) and not target.is_linked():
-            pad.link(target)
 
     def message(self, bus, message):
         if message.type == Gst.MessageType.EOS:
             self.window.close()
+        elif message.type == Gst.MessageType.BUFFERING:
+            percent = message.parse_buffering()
+            self.status.set_text('Carregando vídeo · {}%'.format(percent))
+            self.pipeline.set_state(Gst.State.PAUSED if percent < 100 or self.paused else Gst.State.PLAYING)
         elif message.type == Gst.MessageType.ERROR:
             self.fail(message.parse_error()[0].message)
 
     def fail(self, message):
         if not self.closed:
+            self.failed = True
             self.status.set_text(message)
             if self.pipeline:
                 self.pipeline.set_state(Gst.State.NULL)
@@ -132,7 +133,7 @@ class Player:
         return False
 
     def tick(self):
-        if self.closed or not self.pipeline:
+        if self.closed or self.failed or not self.pipeline:
             return False
         ok, pos = self.pipeline.query_position(Gst.Format.TIME)
         if ok:
@@ -140,8 +141,8 @@ class Player:
             self.status.set_text('{:02d}:{:02d}'.format(seconds // 60, seconds % 60))
             for start, end in self.segments:
                 if start <= seconds < end and self.last_skip != start:
-                    self.last_skip = start
-                    self.jump(end)
+                    if self.jump(end):
+                        self.last_skip = start
         return True
 
     def jump(self, seconds):
@@ -155,9 +156,9 @@ class Player:
                 self.jump(pos / Gst.SECOND + delta)
 
     def toggle(self):
-        if self.pipeline:
-            current = self.pipeline.get_state(0)[1]
-            self.pipeline.set_state(Gst.State.PAUSED if current == Gst.State.PLAYING else Gst.State.PLAYING)
+        if self.pipeline and not self.failed:
+            self.paused = not self.paused
+            self.pipeline.set_state(Gst.State.PAUSED if self.paused else Gst.State.PLAYING)
 
     def key(self, widget, event):
         actions = {Gdk.KEY_Escape: self.window.close, Gdk.KEY_BackSpace: self.window.close,
@@ -166,6 +167,12 @@ class Player:
         if event.keyval in actions:
             actions[event.keyval]()
             return True
+        return False
+
+    def stop_before_destroy(self, *_):
+        if self.pipeline:
+            self.pipeline.set_state(Gst.State.NULL)
+            self.pipeline.get_state(3 * Gst.SECOND)
         return False
 
     def close(self, *_):
