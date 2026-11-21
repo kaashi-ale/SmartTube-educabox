@@ -4,8 +4,8 @@ src=$(cd "$(dirname "$0")" && pwd)
 for dep in gst-play-1.0 ffmpeg desktop-file-validate xfce4-terminal; do
   command -v "$dep" >/dev/null || { echo "Dependência ausente: $dep" >&2; exit 1; }
 done
-python3 -c "import gi; gi.require_version('Gst', '1.0'); gi.require_version('GstVideo', '1.0')" || {
-  echo "Instale gir1.2-gstreamer-1.0 e gir1.2-gst-plugins-base-1.0." >&2
+python3 -c "import gi; gi.require_version('Gst', '1.0'); gi.require_version('GstVideo', '1.0'); from gi.overrides import Gst" || {
+  echo "Instale gir1.2-gstreamer-1.0 , gir1.2-gst-plugins-base-1.0 e python3-gst-1.0." >&2
   exit 1
 }
 desktop_file="$(xdg-user-dir DESKTOP)/SmartTube Educabox.desktop"
