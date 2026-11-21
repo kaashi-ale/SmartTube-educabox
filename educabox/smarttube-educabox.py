@@ -16,7 +16,9 @@ def label(name):
 
 state = Path(GLib.get_user_data_dir()) / 'smarttube-educabox/history.json'
 try:
-    history = json.loads(state.read_text())
+    stored = json.loads(state.read_text())
+    history = [item for item in stored if isinstance(item, list) and len(item) == 3
+               and all(isinstance(value, str) for value in item)] if isinstance(stored, list) else []
 except (OSError, ValueError):
     history = []
 
@@ -56,7 +58,13 @@ scroll = Gtk.ScrolledWindow()
 scroll.add(view)
 layout.pack_start(scroll, True, True, 0)
 
+playback = None
+
 def play(url, title=None):
+    global playback
+    if playback is not None and playback.poll() is None:
+        status.set_text('Feche o vídeo atual antes de abrir outro.')
+        return
     row = [title or url, '', url]
     history[:] = [row] + [item for item in history if item[2] != url][:49]
     try:
@@ -68,7 +76,7 @@ def play(url, title=None):
         status.set_text('O histórico não pôde ser salvo.')
     env = dict(os.environ, EDUCABOX_VIDEO_HEIGHT=quality.get_active_id())
 
-    subprocess.Popen(['xfce4-terminal', '--disable-server', '--title=YouTube', '--execute',
+    playback = subprocess.Popen(['xfce4-terminal', '--disable-server', '--title=YouTube', '--execute',
                       str(bin_dir / 'educabox-midia'), url], env=env)
 
 def activate(tree, path, column):
