@@ -74,7 +74,7 @@ class Browse:
             card.add(content)
             card.set_tooltip_text(title)
             card.connect('clicked', lambda _button, link=url, name=title: self.play(link, name))
-            card.connect('key-press-event', self.move_left)
+            card.connect('key-press-event', self.navigate_card)
             self.grid.add(card)
             self.cards.append(card)
             match = re.fullmatch(r'https://www\.youtube\.com/watch\?v=([\w-]{11})', url, re.ASCII)
@@ -84,9 +84,17 @@ class Browse:
         if self.cards and focus:
             self.cards[0].grab_focus()
 
-    def move_left(self, card, event):
+    def navigate_card(self, card, event):
         if event.keyval in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):
             self.navigation[0].grab_focus()
+            return True
+        if event.keyval in (Gdk.KEY_Left, Gdk.KEY_Right):
+            direction = -1 if event.keyval == Gdk.KEY_Left else 1
+            index = self.cards.index(card) + direction
+            if 0 <= index < len(self.cards):
+                self.cards[index].grab_focus()
+            elif direction < 0:
+                self.navigation[0].grab_focus()
             return True
         return False
 
