@@ -68,7 +68,7 @@ def play(url, title=None):
         status.set_text('O histórico não pôde ser salvo.')
     env = dict(os.environ, EDUCABOX_VIDEO_HEIGHT=quality.get_active_id())
 
-    subprocess.Popen(['xfce4-terminal', '--title=YouTube', '--execute',
+    subprocess.Popen(['xfce4-terminal', '--disable-server', '--title=YouTube', '--execute',
                       str(bin_dir / 'educabox-midia'), url], env=env)
 
 def activate(tree, path, column):
