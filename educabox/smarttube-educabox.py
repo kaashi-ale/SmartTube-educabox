@@ -8,6 +8,7 @@ from pathlib import Path
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gdk, Gtk, GLib
+from browse import Browse, QUERIES
 
 bin_dir = Path.home() / '.local/bin'
 strings = ET.parse(Path(__file__).with_name('smarttube-strings.xml'))
@@ -49,15 +50,6 @@ toolbar.pack_start(quality, False, False, 0)
 status = Gtk.Label(label='Enter para buscar ou abrir o link')
 status.set_xalign(0)
 layout.pack_start(status, False, False, 0)
-results = Gtk.ListStore(str, str, str)
-view = Gtk.TreeView(model=results)
-view.set_headers_visible(False)
-for index in (0, 1):
-    view.append_column(Gtk.TreeViewColumn('', Gtk.CellRendererText(), text=index))
-scroll = Gtk.ScrolledWindow()
-scroll.add(view)
-layout.pack_start(scroll, True, True, 0)
-
 playback = None
 
 def play(url, title=None):
@@ -79,20 +71,14 @@ def play(url, title=None):
     playback = subprocess.Popen(['xfce4-terminal', '--disable-server', '--title=YouTube', '--execute',
                       str(bin_dir / 'educabox-midia'), url], env=env)
 
-def activate(tree, path, column):
-    play(results[path][2], results[path][0])
-
 def populate(rows, message):
-    for row in rows:
-        results.append(row)
+    browse.show(rows)
     status.set_text(message)
     entry.set_sensitive(True)
     search_button.set_sensitive(True)
     history_button.set_sensitive(True)
-    if rows:
-        view.grab_focus()
-        view.set_cursor(0)
-    else:
+    browse.widget.set_sensitive(True)
+    if not rows:
         entry.grab_focus()
 
 def search(query):
@@ -124,7 +110,8 @@ def submit(field):
     if query.startswith('https://'):
         play(query)
     elif query:
-        results.clear()
+        browse.show([])
+        browse.widget.set_sensitive(False)
         entry.set_sensitive(False)
         search_button.set_sensitive(False)
         history_button.set_sensitive(False)
@@ -149,16 +136,23 @@ def focus_search(widget, event):
 
 window.connect("key-press-event", focus_search)
 
-def show_history(button):
-    results.clear()
-    populate(history, label('header_history') if history else 'Seu histórico está vazio.')
+def section_selected(name):
+    browse.set_section(name)
+    if name in QUERIES:
+        entry.set_text(QUERIES[name])
+        submit(entry)
+    else:
+        populate(history, label('header_history') if history else
+                 'Pesquise ou cole um link para começar.')
 
-history_button.connect('clicked', show_history)
+browse = Browse(label, play, section_selected)
+layout.pack_start(browse.widget, True, True, 0)
+history_button.connect('clicked', lambda button: section_selected('HISTORY'))
 search_button.connect('clicked', lambda button: submit(entry))
 entry.connect('activate', submit)
-view.connect('row-activated', activate)
 window.show_all()
 if os.getenv("SMARTTUBE_WINDOWED") != "1":
     window.fullscreen()
+section_selected('HOME')
 entry.grab_focus()
 Gtk.main()
