@@ -1,6 +1,6 @@
 # SmartTube para Educabox Linux
 
-Este diretório contém a primeira adaptação para o Educabox ARMv7. A interface GTK reaproveita as traduções pt-BR do SmartTube. Busca e resolução de links usam yt-dlp. O GStreamer usa o decodificador Rockchip MPP e a saída rkximagesink.
+Este diretório contém a primeira adaptação para o Educabox ARMv7. A interface GTK porta parte da navegação do SmartTube. O instalador lê as definições de seção diretamente de BrowsePresenter.java e usa os ícones e as traduções pt-BR do código Android. A interface Linux mostra abas laterais e capas carregadas sob demanda. Em alta, Músicas, Jogos e Esportes executam buscas temáticas. Início e Histórico mostram os vídeos abertos na conta local do Educabox. Busca e resolução de links usam yt-dlp. O GStreamer usa o decodificador Rockchip MPP e a saída rkximagesink.
 
 No Educabox já preparado com GTK 3 (Python GI), XFCE, FFmpeg, GStreamer 1.14 com os plugins Rockchip em ~/.local/opt/rk-media, yt-dlp ARMv7 em ~/.local/opt/edu-yt-dlp e o ambiente NVM usado pelo reprodutor Educabox, execute da raiz:
 
