@@ -72,12 +72,12 @@ def play(url, title=None):
                       str(bin_dir / 'educabox-midia'), url], env=env)
 
 def populate(rows, message):
-    browse.show(rows)
     status.set_text(message)
     entry.set_sensitive(True)
     search_button.set_sensitive(True)
     history_button.set_sensitive(True)
     browse.widget.set_sensitive(True)
+    browse.show(rows)
     if not rows:
         entry.grab_focus()
 
