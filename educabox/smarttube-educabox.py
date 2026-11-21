@@ -4,6 +4,9 @@ import json
 import xml.etree.ElementTree as ET
 import subprocess
 import threading
+import re
+import sqlite3
+from urllib.request import urlopen
 from pathlib import Path
 import gi
 gi.require_version('Gtk', '3.0')
@@ -22,6 +25,54 @@ try:
                and all(isinstance(value, str) for value in item)] if isinstance(stored, list) else []
 except (OSError, ValueError):
     history = []
+
+state.parent.mkdir(parents=True, exist_ok=True)
+channels = sqlite3.connect(str(state.with_name('subscriptions.sqlite')))
+channels.execute('CREATE TABLE IF NOT EXISTS subscriptions (id TEXT PRIMARY KEY, name TEXT NOT NULL)')
+video_channels = {}
+
+def channel_menu(widget, url):
+    channel = video_channels.get(url)
+    if not channel:
+        status.set_text('Informação de canal indisponível para este vídeo.')
+        return True
+    cid, name = channel
+    exists = channels.execute('SELECT 1 FROM subscriptions WHERE id=?', (cid,)).fetchone()
+    menu = Gtk.Menu()
+    action = Gtk.MenuItem(label=('Cancelar inscrição · ' if exists else 'Inscrever-se · ') + name)
+    def change(item):
+        with channels:
+            if exists:
+                channels.execute('DELETE FROM subscriptions WHERE id=?', (cid,))
+            else:
+                channels.execute('INSERT OR IGNORE INTO subscriptions VALUES (?,?)', (cid, name))
+        status.set_text(('Inscrição removida · ' if exists else 'Inscrição salva · ') + name)
+    action.connect('activate', change)
+    menu.append(action)
+    menu.show_all()
+    menu.attach_to_widget(widget, None)
+    menu.popup_at_widget(widget, Gdk.Gravity.SOUTH_WEST, Gdk.Gravity.NORTH_WEST, None)
+    return True
+
+def subscription_feed(records):
+    rows = []
+    authors = {}
+    errors = 0
+    for cid, name in records:
+        try:
+            with urlopen('https://www.youtube.com/feeds/videos.xml?channel_id=' + cid, timeout=6) as response:
+                feed = ET.fromstring(response.read(512 * 1024))
+            for item in feed.findall('{http://www.w3.org/2005/Atom}entry'):
+                vid = item.findtext('{http://www.youtube.com/xml/schemas/2015}videoId', '')
+                if re.fullmatch(r'[A-Za-z0-9_-]{11}', vid):
+                    link = 'https://www.youtube.com/watch?v=' + vid
+                    rows.append((item.findtext('{http://www.w3.org/2005/Atom}published', ''),
+                                 item.findtext('{http://www.w3.org/2005/Atom}title', vid), link))
+                    authors[link] = (cid, name)
+        except (OSError, ET.ParseError):
+            errors += 1
+    items = [(title, '', link) for _, title, link in sorted(rows, reverse=True)[:12]]
+    GLib.idle_add(populate, items, 'Inscrições locais · {} vídeos · {} canais indisponíveis'.format(len(items), errors), authors)
 
 window = Gtk.Window(title='SmartTube • Educabox')
 window.set_default_size(720, 460)
@@ -47,6 +98,9 @@ for height in ('720', '360'):
 quality.set_active_id('720')
 quality.set_tooltip_text(label('playback_settings'))
 toolbar.pack_start(quality, False, False, 0)
+sponsors = Gtk.CheckButton(label='SponsorBlock')
+sponsors.set_tooltip_text('Consultar SponsorBlock para pular trechos patrocinados')
+toolbar.pack_start(sponsors, False, False, 0)
 status = Gtk.Label(label='Enter para buscar ou abrir o link')
 status.set_xalign(0)
 layout.pack_start(status, False, False, 0)
@@ -66,12 +120,15 @@ def play(url, title=None):
         temporary.replace(state)
     except OSError:
         status.set_text('O histórico não pôde ser salvo.')
-    env = dict(os.environ, EDUCABOX_VIDEO_HEIGHT=quality.get_active_id())
+    lib = Path.home()/'.local/opt/rk-media/usr/lib/arm-linux-gnueabihf'
+    env = dict(os.environ, EDUCABOX_VIDEO_HEIGHT=quality.get_active_id(),
+               EDUCABOX_SPONSORBLOCK='1' if sponsors.get_active() else '0',
+               LD_LIBRARY_PATH=str(lib), GST_PLUGIN_PATH=str(lib/'gstreamer-1.0'))
+    playback = subprocess.Popen(['/usr/bin/python3', str(Path(__file__).with_name('player.py')), url], env=env)
 
-    playback = subprocess.Popen(['xfce4-terminal', '--disable-server', '--title=YouTube', '--execute',
-                      str(bin_dir / 'educabox-midia'), url], env=env)
-
-def populate(rows, message):
+def populate(rows, message, authors=None):
+    video_channels.clear()
+    video_channels.update(authors or {})
     status.set_text(message)
     entry.set_sensitive(True)
     search_button.set_sensitive(True)
@@ -88,22 +145,25 @@ def search(query):
                str(root / 'usr/lib/arm-linux-gnueabihf'))
     executable = Path.home() / '.local/opt/edu-yt-dlp/yt-dlp_linux_armv7l'
     rows = []
+    authors = {}
     try:
         raw = subprocess.check_output(
             [str(executable), '--ignore-config', '--flat-playlist', '--no-warnings',
-             '--print', '%(id)s\t%(title)s\t%(duration_string)s',
+             '--print', '%(id)s\t%(channel_id)s\t%(channel)s\t%(duration_string)s\t%(title)s',
              '--', 'ytsearch12:' + query], env=env, timeout=85,
             stderr=subprocess.DEVNULL, universal_newlines=True)
         for line in raw.splitlines():
-            parts = line.split('\t', 2)
-            if len(parts) == 3 and len(parts[0]) == 11:
-                video_id, title, duration = parts
-                rows.append((title, duration if duration != 'NA' else '',
-                             'https://www.youtube.com/watch?v=' + video_id))
+            parts = line.split('\t', 4)
+            if len(parts) == 5 and re.fullmatch(r'[A-Za-z0-9_-]{11}', parts[0]):
+                vid, cid, name, duration, title = parts
+                link = 'https://www.youtube.com/watch?v=' + vid
+                rows.append((title, duration if duration != 'NA' else '', link))
+                if re.fullmatch(r'UC[A-Za-z0-9_-]{22}', cid):
+                    authors[link] = (cid, name)
         message = '{} vídeos • Enter para reproduzir'.format(len(rows))
     except (OSError, subprocess.SubprocessError):
         message = 'A busca falhou. Tente novamente ou cole o link do vídeo.'
-    GLib.idle_add(populate, rows, message)
+    GLib.idle_add(populate, rows, message, authors)
 
 def submit(field):
     query = field.get_text().strip()
@@ -138,14 +198,23 @@ window.connect("key-press-event", focus_search)
 
 def section_selected(name):
     browse.set_section(name)
-    if name in QUERIES:
+    if name == 'SUBSCRIPTIONS':
+        records = channels.execute('SELECT id, name FROM subscriptions ORDER BY name').fetchall()
+        if records:
+            for item in (entry, search_button, history_button, browse.widget):
+                item.set_sensitive(False)
+            status.set_text('Carregando inscrições…')
+            threading.Thread(target=subscription_feed, args=(records,), daemon=True).start()
+        else:
+            populate([], 'Use o botão direito ou Shift+F10 em um resultado para seguir o canal.')
+    elif name in QUERIES:
         entry.set_text(QUERIES[name])
         submit(entry)
     else:
         populate(history, label('header_history') if history else
                  'Pesquise ou cole um link para começar.')
 
-browse = Browse(label, play, section_selected)
+browse = Browse(label, play, section_selected, channel_menu)
 layout.pack_start(browse.widget, True, True, 0)
 history_button.connect('clicked', lambda button: section_selected('HISTORY'))
 search_button.connect('clicked', lambda button: submit(entry))
