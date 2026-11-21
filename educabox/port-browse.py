@@ -12,5 +12,5 @@ pattern = (
 )
 for section, title, layout, icon in re.findall(pattern, source.read_text()):
     sections[section] = {'title': title, 'layout': layout, 'icon': icon}
-supported = ('HOME', 'TRENDING', 'MUSIC', 'GAMING', 'SPORTS', 'HISTORY')
+supported = ('HOME', 'TRENDING', 'MUSIC', 'GAMING', 'SPORTS', 'NEWS', 'SUBSCRIPTIONS', 'HISTORY')
 destination.write_text(json.dumps({name: sections[name] for name in supported}, indent=2))
