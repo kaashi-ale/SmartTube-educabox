@@ -13,13 +13,15 @@ QUERIES = {
     'TRENDING': 'vídeos populares Brasil',
     'MUSIC': 'música Brasil lançamentos',
     'GAMING': 'jogos gameplay Brasil',
+    'NEWS': 'notícias Brasil hoje',
     'SPORTS': 'esportes melhores momentos Brasil',
 }
 
 
 class Browse:
-    def __init__(self, label, play, select_section):
+    def __init__(self, label, play, select_section, channel_menu):
         self.play = play
+        self.channel_menu = channel_menu
         self.pool = ThreadPoolExecutor(max_workers=3)
         self.cards = []
         self.widget = Gtk.Box(spacing=24)
@@ -75,6 +77,8 @@ class Browse:
             card.set_tooltip_text(title)
             card.connect('clicked', lambda _button, link=url, name=title: self.play(link, name))
             card.connect('key-press-event', self.navigate_card)
+            card.connect('button-press-event', self.card_menu, url)
+            card.connect('popup-menu', lambda widget, link=url: self.channel_menu(widget, link))
             self.grid.add(card)
             self.cards.append(card)
             match = re.fullmatch(r'https://www\.youtube\.com/watch\?v=([\w-]{11})', url, re.ASCII)
@@ -83,6 +87,11 @@ class Browse:
         self.grid.show_all()
         if self.cards and focus:
             self.cards[0].grab_focus()
+
+    def card_menu(self, widget, event, url):
+        if event.button == 3:
+            return self.channel_menu(widget, url)
+        return False
 
     def navigate_card(self, card, event):
         if event.keyval in (Gdk.KEY_Escape, Gdk.KEY_BackSpace):
