@@ -1,0 +1,13 @@
+#!/bin/bash
+set -eu
+root="$HOME/.nvm/versions/node/v20.20.2/compat"
+lib="$root/lib/arm-linux-gnueabihf"
+export LD_LIBRARY_PATH="$lib:$root/usr/lib/arm-linux-gnueabihf"
+case "${EDUCABOX_VIDEO_HEIGHT:-720}" in
+  360) format='b[height<=360][ext=mp4][vcodec^=avc1]' ;;
+  *) format='bv[height<=720][fps<=30][vcodec^=avc1][protocol=https]+ba[acodec^=mp4a][protocol=https]/b[height<=720][ext=mp4][vcodec^=avc1]' ;;
+esac
+exec "$HOME/.local/opt/edu-yt-dlp/yt-dlp_linux_armv7l" \
+  --ignore-config --no-playlist --no-warnings --socket-timeout 12 --retries 2 \
+  --js-runtimes "node:$HOME/.nvm/versions/node/v22.23.5/bin/node" \
+  -f "$format" -g -- "$1"
