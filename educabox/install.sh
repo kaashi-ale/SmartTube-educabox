@@ -6,8 +6,14 @@ for dep in gst-play-1.0 ffmpeg desktop-file-validate xfce4-terminal; do
 done
 desktop_file="$(xdg-user-dir DESKTOP)/SmartTube Educabox.desktop"
 app="$HOME/.local/share/smarttube-educabox"
-install -d "$app" "$HOME/.local/bin" "$HOME/.local/share/applications" "$(dirname "$desktop_file")"
+install -d "$app/icons" "$HOME/.local/bin" "$HOME/.local/share/applications" "$(dirname "$desktop_file")"
 install -m755 "$src/smarttube-educabox.py" "$app/"
+install -m644 "$src/browse.py" "$app/"
+common="$src/../common/src/main"
+python3 "$src/port-browse.py"   "$common/java/com/liskovsoft/smartyoutubetv2/common/app/presenters/BrowsePresenter.java"   "$app/sections.json"
+for icon in home trending music gaming sports history; do
+  install -m644 "$common/res/drawable-nodpi/icon_$icon.png" "$app/icons/"
+done
 install -m644 "$src/../common/src/main/res/values-pt-rBR/strings.xml" "$app/smarttube-strings.xml"
 install -m755 "$src/educabox-midia" "$src/educabox-yt-formatos" "$HOME/.local/bin/"
 cat > "$app/SmartTube-Educabox.desktop" <<DESKTOP
